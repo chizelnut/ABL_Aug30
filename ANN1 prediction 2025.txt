@@ -1,0 +1,130 @@
+!pip install tensorflow
+!pip install pydot
+
+# import the necessary libararies
+
+import pandas as pd
+from tensorflow.keras.layers import Dense, Dropout, Activation
+from tensorflow.keras.models import Model, Sequential
+from tensorflow.keras.optimizers import Adam #Adam stands for "adaptive moment estimation"
+
+# Notice that at the end of each line below there is a 
+# backslash. This means that the code is continued on the 
+# next line. 
+
+crime_data = pd.read_csv(r"C:\Users\du.j\AppData\Local\anaconda3\CGN6905AI\crimeSTATS.csv", sep=',')
+display(crime_data) # show up the data as an example
+# if the csv file is saved in the folder as the .ipynb, crime_data = pd.read_csv("crimeSTATS.csv", sep=',')
+
+# take out the “total_crime_reported_per_1_million_res”   
+# column from the housing_data dataset and use it as the Y 
+# variable 
+X = crime_data.drop(['total_crime_reported_per_1_million_res'],axis=1).values
+Y = crime_data[['total_crime_reported_per_1_million_res']].values 
+
+#divide the variables into training and test sets using
+# the train_test_split function
+from sklearn.model_selection import train_test_split
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.20, random_state=25) # random_state is a random seed; if fixed, then everytime repeating it would give the same result.
+
+
+#notice the lines after the first are indented inward. This
+# is because all the lines indented define the model.
+# The following lines create the model of the neural 
+# network before it is trained
+
+def create_model (learning_rate, dropout_rate):
+
+    model = Sequential() #sequential is a type of neural network modeling method - layers after layers
+    model.add(Dense(100, input_dim=X_train.shape[1],activation='relu')) # why using ReLU? no upper bound for crime incidents.
+    model.add(Dropout(dropout_rate)) # dropout randomly select neuron connections and set the connection weight to zero. To avoid overfitting
+    model.add(Dense(50,  activation='relu'))
+    model.add(Dropout(dropout_rate))
+    model.add(Dense(25,  activation='relu'))
+    model.add(Dropout(dropout_rate))
+    model.add(Dense(1))
+
+    adam = Adam(learning_rate=learning_rate)
+    model.compile(loss='mean_squared_error', optimizer=adam, metrics=['mae'])
+    return model
+
+
+# initialize some variables
+dropout_rate = 0.1
+
+epochs = 100
+learn_rate = 0.01
+
+
+#create the model using the initialized variables
+model = create_model(learn_rate, dropout_rate)
+
+
+#Notice the backslashes at the end of the lines. This 
+#means the code of a line is continued on the next line.
+#This next line is used to train our neural network model
+model_history = model.fit(X_train, Y_train, batch_size= 1, epochs=epochs, validation_split=0.2, verbose=1) # Verbose indicates how much details to show. 0 means nothing; 1 shows all progress details; 2 shows only epochs. batch size shows how many rounds of inputs to provide, before updating the weights.
+
+#evaluate the model’s accuracy
+score = model.evaluate(X_test, Y_test, verbose=1)
+
+print("Loss:", score[0])
+print("Mean Absolute Error:", score[1])
+
+#graph the mean absolute error for the training and test #sets 
+import matplotlib.pyplot as plt
+
+plt.plot(model_history.history['mae'])
+plt.plot(model_history.history['val_mae'])
+plt.legend(['train','test'], loc='upper right')
+plt.title('Model Error')
+plt.ylabel('Mean Absolute Error')
+plt.xlabel('Epoch')
+
+
+
+
+#create fictitious variables for each of the independent #variables in order to make a prediction about 
+# total_crime_reported_per_1_million_res
+
+import numpy as np
+
+# make a 2-D array with the same dtype as X_train
+X_new = np.array([[30, 74, 11, 31, 20]], dtype=X_train.dtype)  # or dtype=np.float32
+
+prediction = model.predict(X_new, verbose=0)
+print("Predicted total crime per 1M residents:", float(prediction[0,0]))
+
+# Use the prediction function to predict  
+# total_crime_reported_per_1_million_res 
+# from the variables entered in the X_new list 
+
+
+# The following code displays the structure of the model
+pip install graphviz pydot
+from tensorflow.keras.utils import plot_model 
+plot_model (model, to_file='model_plot1.png', show_shapes=True, show_layer_names=True)
+
+
+#If received error about graphviz, try this:
+import os, shutil, sys
+print("Python:", sys.version)
+print("Jupyter sees PATH contains Graphviz bin? ",
+      r"C:\Program Files\Graphviz\bin" in os.environ.get("PATH",""))
+
+print("shutil.which('dot') ->", shutil.which("dot"))
+
+# If Jupyter doesn't see dot, patch PATH for this session:
+if shutil.which("dot") is None:
+    os.environ["PATH"] += os.pathsep + r"C:\Program Files\Graphviz\bin"
+    os.environ["GRAPHVIZ_DOT"] = r"C:\Program Files\Graphviz\bin\dot.exe"
+    print("Patched PATH. Now which('dot') ->", shutil.which("dot"))
+
+# Make sure Python packages are present
+try:
+    import pydot
+    import graphviz as gv  # python package, not the system binary
+    print("Imported pydot and python-graphviz successfully.")
+except Exception as e:
+    print("Import error:", e)
+
