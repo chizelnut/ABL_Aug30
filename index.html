@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>神经网络连线实验</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #222; background: #fff; padding: 20px; max-width: 1100px; margin: 0 auto;
+    font-size: 15px; line-height: 1.55;
+  }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; font-weight: 600; }
+  .sub { color: #555; margin-top: 4px; max-width: 860px; }
+  #langBtn { border: 1px solid #bbb; background: #fff; padding: 3px 10px; cursor: pointer; font-size: 13px; border-radius: 4px; }
+  button:hover { background: #f2f2f2; }
+
+  .cols { display: flex; gap: 26px; flex-wrap: wrap; margin-top: 20px; align-items: flex-start; }
+  h2 { font-size: 15px; font-weight: 600; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #ddd; }
+
+  .grid { display: grid; grid-template-columns: repeat(4, 42px); gap: 3px; user-select: none; width: max-content; }
+  .grid .c { position: relative; width: 42px; height: 42px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+  .grid .c.on { background: #333; border-color: #333; }
+  .grid .c em { position: absolute; top: 1px; left: 3px; font-style: normal; font-size: 9px; color: #999; }
+  .grid .c.on em { color: #bbb; }
+  .btns { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .btns button, #panel button { border: 1px solid #bbb; background: #fff; padding: 5px 10px; cursor: pointer; font-size: 13px; border-radius: 4px; }
+
+  .diagram-wrap { overflow-x: auto; }
+  svg { display: block; }
+  svg text { font-family: inherit; }
+  .hit { stroke: rgba(0,0,0,0); stroke-width: 13; fill: none; cursor: pointer; }
+  .wire { fill: none; pointer-events: none; }
+  .halo { fill: none; stroke: #9ec5ff; pointer-events: none; }
+  .node { stroke: #666; stroke-width: 1.5; fill: #fff; }
+  .node.lit { fill: #333; }
+  .wlabel { font-size: 11px; paint-order: stroke; stroke: #fff; stroke-width: 4px; fill: #111; pointer-events: none; }
+
+  #panel { margin-top: 8px; border: 1px solid #ddd; border-radius: 4px; padding: 10px 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; max-width: 640px; }
+  #panel .hint { color: #777; }
+  #selName { font-weight: 600; }
+  #wSlider { width: 220px; }
+  #wVal { font-family: ui-monospace, Menlo, Consolas, monospace; min-width: 44px; display: inline-block; }
+  #predLine { margin-top: 10px; font-size: 15px; }
+  #predLine b { color: #2261c4; }
+
+  details { margin-top: 22px; border-top: 1px solid #ddd; padding-top: 10px; }
+  summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+  details p { margin: 8px 0 0; color: #333; max-width: 800px; }
+  .note { color: #777; font-size: 12px; margin-top: 18px; max-width: 800px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 data-t="title"></h1>
+    <div class="sub" data-t="subtitle"></div>
+  </div>
+  <button id="langBtn">English</button>
+</header>
+
+<div class="cols">
+  <div>
+    <h2 data-t="canvasTitle"></h2>
+    <div id="canvas" class="grid"></div>
+    <div class="btns">
+      <button data-preset="0">0</button>
+      <button data-preset="1">1</button>
+      <button data-preset="2">7</button>
+      <button id="clearDraw" data-t="clearCanvas"></button>
+    </div>
+  </div>
+
+  <div style="flex:1; min-width: 320px">
+    <h2 data-t="netTitle"></h2>
+    <div class="diagram-wrap"><svg id="net" width="660" height="470" viewBox="0 0 660 470"></svg></div>
+    <div id="panel">
+      <span class="hint" id="selHint" data-t="selHint"></span>
+      <span id="selName" style="display:none"></span>
+      <input type="range" id="wSlider" min="-1" max="1" step="0.1" style="display:none">
+      <span id="wVal" style="display:none"></span>
+    </div>
+    <div class="btns">
+      <button id="randomBtn" data-t="randomBtn"></button>
+      <button id="zeroBtn" data-t="zeroBtn"></button>
+    </div>
+    <div id="predLine"></div>
+  </div>
+</div>
+
+<details>
+  <summary data-t="mathTitle"></summary>
+  <p data-t="math1"></p>
+  <p data-t="math2"></p>
+</details>
+<details>
+  <summary data-t="trainTitle"></summary>
+  <p data-t="train1"></p>
+</details>
+<p class="note" data-t="note"></p>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const SVGNS = "http://www.w3.org/2000/svg";
+const N_IN = 16, N_HID = 4, OUTS = [0, 1, 7];
+const HID_MARK = ["①", "②", "③", "④"];
+
+const DICT = {
+  zh: {
+    title: "神经网络连线实验",
+    subtitle: "左边画布的 16 个格子就是 16 个输入神经元（格子角上的小数字 = 对应神经元编号）。神经元之间的每条线都带一个权重：点一条线选中它，再拖滑块改数值，马上就能看到右边输出分数的变化。",
+    canvasTitle: "画布（4×4 = 16 个输入）",
+    clearCanvas: "清空",
+    netTitle: "网络：调整连线上的权重",
+    selHint: "点一条线，就可以调它的权重",
+    randomBtn: "随机所有权重",
+    zeroBtn: "全部清零",
+    inCap: "输入层 ×16", hidCap: "隐藏层 ×4", outCap: "输出层 ×3",
+    inName: i => `输入 ${i + 1}`,
+    hidName: j => `隐藏${HID_MARK[j]}`,
+    outName: k => `输出 ${OUTS[k]}`,
+    selText: (a, b) => `${a} → ${b} 的权重`,
+    pred: d => `当前预测：<b>${d}</b>（分数最高的输出）`,
+    tie: "当前预测：平局，分不出高低",
+    empty: "当前预测：——（画点东西，让输入亮起来）",
+    mathTitle: "这个网络在算什么",
+    math1: "每个隐藏神经元：把 16 个输入分别乘以连到自己的线上的权重，再全部加起来；如果结果小于 0 就按 0 算（这一步叫 ReLU）。算出来的数会显示在圆圈里，圆圈也会随着数值变蓝。",
+    math2: "每个输出：把 4 个隐藏神经元的数值分别乘以第二段线上的权重再加起来，得到一个分数。三个分数里最高的那个，就是网络的预测。所以：改任何一条线，都会顺着线传下去，改变最后的分数。",
+    trainTitle: "真实的网络怎么调这些线",
+    train1: "真实的手写识别网络有几十万条线，没人能用手调。它们靠“训练”：先随机（就像你点“随机所有权重”那样），然后拿几万张有答案的图片来考它，每答错一次，就自动把每条线往“让错误变小”的方向微调一点点，重复几百万次（这个算法叫反向传播）。你刚才手工体会到的“改一条线、输出就变”，正是训练算法每时每刻都在利用的事实。",
+    note: "简化说明：真实网络的输入是 784 个以上的像素、权重是任意小数并且自动学出来的；这里为了能亲手玩，缩小到 16 个输入、4 个隐藏神经元，权重范围 −1 到 +1。输出这里直接比较分数，真实网络还会用 softmax 把分数换算成概率。",
+  },
+  en: {
+    title: "Neural Network Wires Lab",
+    subtitle: "The 16 cells of the canvas on the left are 16 input neurons (the tiny number in each cell = its neuron number). Every line between neurons carries a weight: click a line to select it, drag the slider to change its value, and watch the output scores on the right change instantly.",
+    canvasTitle: "Canvas (4×4 = 16 inputs)",
+    clearCanvas: "Clear",
+    netTitle: "The network: adjust the weights on the wires",
+    selHint: "Click a wire to adjust its weight",
+    randomBtn: "Randomize all weights",
+    zeroBtn: "Set all to zero",
+    inCap: "Input layer ×16", hidCap: "Hidden layer ×4", outCap: "Output layer ×3",
+    inName: i => `input ${i + 1}`,
+    hidName: j => `hidden ${HID_MARK[j]}`,
+    outName: k => `output ${OUTS[k]}`,
+    selText: (a, b) => `Weight of ${a} → ${b}`,
+    pred: d => `Prediction: <b>${d}</b> (highest score)`,
+    tie: "Prediction: tie — no single highest score",
+    empty: "Prediction: — (draw something so some inputs light up)",
+    mathTitle: "What the network is computing",
+    math1: "Each hidden neuron multiplies the 16 inputs by the weights on its incoming wires and adds everything up; if the result is below 0 it counts as 0 (that step is called ReLU). The number is shown inside the circle, and the circle turns bluer as it grows.",
+    math2: "Each output multiplies the 4 hidden values by the weights on the second set of wires and adds them up into a score. Whichever of the three scores is highest is the network's prediction. So changing any single wire ripples down the lines and changes the final scores.",
+    trainTitle: "How real networks tune these wires",
+    train1: "A real handwriting network has hundreds of thousands of wires — no one can tune them by hand. They are trained: start random (just like the “Randomize” button), then quiz the network on tens of thousands of labelled pictures; after every mistake, every wire is automatically nudged a tiny bit in the direction that shrinks the error, millions of times over (the algorithm is called backpropagation). The fact you just felt by hand — change a wire, the output changes — is exactly what training exploits.",
+    note: "Simplifications: real networks take 784+ pixel inputs and their weights are arbitrary learned decimals; here it is shrunk to 16 inputs and 4 hidden neurons with weights from −1 to +1 so you can play by hand. Outputs here just compare raw scores; real networks also convert scores to probabilities with softmax.",
+  }
+};
+let lang = "zh";
+
+/* ---------- state ---------- */
+let input = new Array(N_IN).fill(0);
+let W1 = Array.from({length: N_HID}, () => new Array(N_IN).fill(0));   // input -> hidden
+let W2 = Array.from({length: OUTS.length}, () => new Array(N_HID).fill(0)); // hidden -> output
+const PRESETS = [
+  "0110 1001 1001 0110",
+  "0100 1100 0100 0100",
+  "1111 0001 0010 0100",
+].map(s => s.replace(/\s+/g, "").split("").map(Number));
+
+const rnd = () => Math.round((Math.random() * 12 - 6)) / 10; // -0.6..0.6, step 0.1
+function randomizeWeights() {
+  W1.forEach(row => { for (let i = 0; i < N_IN; i++) row[i] = rnd(); });
+  W2.forEach(row => { for (let j = 0; j < N_HID; j++) row[j] = rnd(); });
+}
+
+/* ---------- math ---------- */
+function compute() {
+  const h = W1.map(row => Math.max(0, row.reduce((a, w, i) => a + w * input[i], 0)));
+  const s = W2.map(row => row.reduce((a, w, j) => a + w * h[j], 0));
+  let best = 0; for (let k = 1; k < s.length; k++) if (s[k] > s[best]) best = k;
+  const unique = s.filter(v => Math.abs(v - s[best]) < 1e-9).length === 1;
+  return { h, s, best: unique ? best : -1 };
+}
+
+/* ---------- canvas ---------- */
+const canvasEl = $("#canvas");
+const canvasCells = [];
+for (let i = 0; i < N_IN; i++) {
+  const c = document.createElement("div");
+  c.className = "c";
+  c.innerHTML = `<em>${i + 1}</em>`;
+  c.addEventListener("click", () => { input[i] = input[i] ? 0 : 1; refresh(); });
+  canvasEl.appendChild(c); canvasCells.push(c);
+}
+document.querySelectorAll("[data-preset]").forEach(b => {
+  b.addEventListener("click", () => { input = PRESETS[+b.dataset.preset].slice(); refresh(); });
+});
+$("#clearDraw").addEventListener("click", () => { input.fill(0); refresh(); });
+
+/* ---------- diagram ---------- */
+const svg = $("#net");
+const el = (tag, attrs) => {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+};
+const X_IN = 90, X_HID = 350, X_OUT = 540;
+const inY = i => 42 + i * 27.2;          // 42 .. 450
+const hidY = j => 90 + j * 105;          // 90,195,300,405
+const outY = k => 120 + k * 125;         // 120,245,370
+const R_IN = 9, R_HID = 17, R_OUT = 19;
+
+const caps = {
+  in: el("text", { x: X_IN, y: 18, "text-anchor": "middle", "font-size": 13, fill: "#555" }),
+  hid: el("text", { x: X_HID, y: 18, "text-anchor": "middle", "font-size": 13, fill: "#555" }),
+  out: el("text", { x: X_OUT + 30, y: 18, "text-anchor": "middle", "font-size": 13, fill: "#555" }),
+};
+Object.values(caps).forEach(t => svg.appendChild(t));
+
+const wires = []; // {layer, a, b, vis, hit, halo, label, x1,y1,x2,y2}
+let selected = null;
+
+function makeWire(layer, a, b, x1, y1, x2, y2) {
+  const d = `M ${x1} ${y1} L ${x2} ${y2}`;
+  const halo = el("path", { d, class: "halo", "stroke-width": 0 });
+  const vis = el("path", { d, class: "wire" });
+  const hit = el("path", { d, class: "hit" });
+  const mx = x1 + (x2 - x1) * (layer === 1 ? 0.32 : 0.5);
+  const my = y1 + (y2 - y1) * (layer === 1 ? 0.32 : 0.5);
+  const label = el("text", { x: mx, y: my - 5, class: "wlabel", "text-anchor": "middle", visibility: "hidden" });
+  const w = { layer, a, b, vis, hit, halo, label };
+  hit.addEventListener("click", () => { selected = w; syncPanel(); refresh(); });
+  hit.addEventListener("mouseenter", () => { if (selected !== w) { label.setAttribute("visibility", "visible"); vis.setAttribute("stroke-opacity", 1); } });
+  hit.addEventListener("mouseleave", () => { if (selected !== w) { label.setAttribute("visibility", "hidden"); vis.setAttribute("stroke-opacity", 0.8); } });
+  wires.push(w);
+  return w;
+}
+// layer 1 wires
+for (let j = 0; j < N_HID; j++)
+  for (let i = 0; i < N_IN; i++)
+    makeWire(1, i, j, X_IN + R_IN, inY(i), X_HID - R_HID, hidY(j));
+// layer 2 wires
+for (let k = 0; k < OUTS.length; k++)
+  for (let j = 0; j < N_HID; j++)
+    makeWire(2, j, k, X_HID + R_HID, hidY(j), X_OUT - R_OUT, outY(k));
+wires.forEach(w => svg.appendChild(w.halo));
+wires.forEach(w => svg.appendChild(w.vis));
+wires.forEach(w => svg.appendChild(w.hit));
+wires.forEach(w => svg.appendChild(w.label));
+
+// nodes
+const inNodes = [], inNums = [];
+for (let i = 0; i < N_IN; i++) {
+  const c = el("circle", { cx: X_IN, cy: inY(i), r: R_IN, class: "node" });
+  const t = el("text", { x: X_IN - R_IN - 6, y: inY(i) + 4, "text-anchor": "end", "font-size": 11, fill: "#777" });
+  t.textContent = i + 1;
+  svg.appendChild(c); svg.appendChild(t);
+  inNodes.push(c); inNums.push(t);
+}
+const hidNodes = [], hidVals = [], hidNames = [];
+for (let j = 0; j < N_HID; j++) {
+  const c = el("circle", { cx: X_HID, cy: hidY(j), r: R_HID, class: "node" });
+  const v = el("text", { x: X_HID, y: hidY(j) + 4, "text-anchor": "middle", "font-size": 12 });
+  const n = el("text", { x: X_HID, y: hidY(j) - R_HID - 7, "text-anchor": "middle", "font-size": 12, fill: "#555" });
+  svg.appendChild(c); svg.appendChild(v); svg.appendChild(n);
+  hidNodes.push(c); hidVals.push(v); hidNames.push(n);
+}
+const outNodes = [], outScores = [], outBars = [];
+for (let k = 0; k < OUTS.length; k++) {
+  const c = el("circle", { cx: X_OUT, cy: outY(k), r: R_OUT, class: "node" });
+  const d = el("text", { x: X_OUT, y: outY(k) + 5, "text-anchor": "middle", "font-size": 16, "font-weight": 700 });
+  d.textContent = OUTS[k];
+  const sc = el("text", { x: X_OUT + R_OUT + 10, y: outY(k) - 4, "font-size": 12, fill: "#333" });
+  const bar = el("rect", { x: X_OUT + R_OUT + 10, y: outY(k) + 2, height: 9 });
+  svg.appendChild(c); svg.appendChild(d); svg.appendChild(sc); svg.appendChild(bar);
+  outNodes.push(c); outScores.push(sc); outBars.push(bar);
+}
+
+/* ---------- weight access ---------- */
+const getW = w => w.layer === 1 ? W1[w.b][w.a] : W2[w.b][w.a];
+const setW = (w, v) => { if (w.layer === 1) W1[w.b][w.a] = v; else W2[w.b][w.a] = v; };
+
+/* ---------- panel ---------- */
+const slider = $("#wSlider"), wVal = $("#wVal"), selName = $("#selName"), selHint = $("#selHint");
+slider.addEventListener("input", () => {
+  if (!selected) return;
+  setW(selected, parseFloat(slider.value));
+  refresh();
+});
+function syncPanel() {
+  const T = DICT[lang];
+  const has = !!selected;
+  selHint.style.display = has ? "none" : "";
+  selName.style.display = has ? "" : "none";
+  slider.style.display = has ? "" : "none";
+  wVal.style.display = has ? "" : "none";
+  if (has) {
+    const T2 = DICT[lang];
+    const nameA = selected.layer === 1 ? T2.inName(selected.a) : T2.hidName(selected.a);
+    const nameB = selected.layer === 1 ? T2.hidName(selected.b) : T2.outName(selected.b);
+    selName.textContent = T2.selText(nameA, nameB);
+    slider.value = getW(selected);
+  }
+}
+
+/* ---------- buttons ---------- */
+$("#randomBtn").addEventListener("click", () => { randomizeWeights(); syncPanel(); refresh(); });
+$("#zeroBtn").addEventListener("click", () => {
+  W1.forEach(r => r.fill(0)); W2.forEach(r => r.fill(0));
+  syncPanel(); refresh();
+});
+$("#langBtn").addEventListener("click", () => { lang = lang === "zh" ? "en" : "zh"; applyLang(); });
+
+/* ---------- rendering ---------- */
+const fmt = v => (v > 0 ? "+" : "") + v.toFixed(1);
+function styleWire(w) {
+  const v = getW(w);
+  const zero = Math.abs(v) < 1e-9;
+  w.vis.setAttribute("stroke", zero ? "#d0d0d0" : v > 0 ? "#2e7d32" : "#b03030");
+  w.vis.setAttribute("stroke-width", zero ? 1 : 1 + 3.2 * Math.abs(v));
+  w.vis.setAttribute("stroke-dasharray", zero ? "3 3" : "none");
+  w.vis.setAttribute("stroke-opacity", selected === w ? 1 : 0.8);
+  w.halo.setAttribute("stroke-width", selected === w ? (zero ? 1 : 1 + 3.2 * Math.abs(v)) + 6 : 0);
+  w.label.textContent = fmt(v);
+  w.label.setAttribute("visibility", selected === w ? "visible" : "hidden");
+}
+function refresh() {
+  const T = DICT[lang];
+  canvasCells.forEach((c, i) => c.classList.toggle("on", !!input[i]));
+  inNodes.forEach((c, i) => c.classList.toggle("lit", !!input[i]));
+
+  wires.forEach(styleWire);
+  if (selected) { wVal.textContent = fmt(getW(selected)); }
+
+  const { h, s, best } = compute();
+  const hMax = Math.max(1, ...h);
+  h.forEach((v, j) => {
+    hidVals[j].textContent = v.toFixed(1);
+    hidNodes[j].setAttribute("fill", v > 0 ? `rgba(34,97,196,${0.12 + 0.55 * v / hMax})` : "#fff");
+    hidVals[j].setAttribute("fill", v / hMax > 0.55 ? "#fff" : "#222");
+  });
+  const sMax = Math.max(0.001, ...s.map(v => Math.abs(v)));
+  s.forEach((v, k) => {
+    outScores[k].textContent = fmt(v);
+    outBars[k].setAttribute("width", Math.abs(v) / sMax * 78);
+    outBars[k].setAttribute("fill", v >= 0 ? "#2261c4" : "#b03030");
+    outNodes[k].setAttribute("stroke", best === k ? "#2261c4" : "#666");
+    outNodes[k].setAttribute("stroke-width", best === k ? 3.5 : 1.5);
+  });
+  const anyInput = input.some(v => v);
+  $("#predLine").innerHTML = !anyInput ? T.empty : (best === -1 ? T.tie : T.pred(OUTS[best]));
+}
+
+function applyLang() {
+  const T = DICT[lang];
+  document.documentElement.lang = lang;
+  document.title = T.title;
+  document.querySelectorAll("[data-t]").forEach(e => { e.textContent = T[e.dataset.t]; });
+  $("#langBtn").textContent = lang === "zh" ? "English" : "中文";
+  caps.in.textContent = T.inCap; caps.hid.textContent = T.hidCap; caps.out.textContent = T.outCap;
+  hidNames.forEach((n, j) => n.textContent = HID_MARK[j]);
+  syncPanel();
+  refresh();
+}
+
+randomizeWeights();
+applyLang();
+</script>
+</body>
+</html>
